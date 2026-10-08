@@ -1,0 +1,146 @@
+{
+  "name": "Autonomous AI Support & FAQ Agent with Human Handoff",
+  "flow": [
+    {
+      "id": 1,
+      "module": "gateway:CustomWebHook",
+      "version": 1,
+      "parameters": {
+        "hook": 99281,
+        "maxResults": 1
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 0,
+          "y": 0,
+          "name": "Inbound Customer Ticket / Chat"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "module": "openai-gpt-3:createChatCompletion",
+      "version": 1,
+      "parameters": {
+        "account": 10428
+      },
+      "mapper": {
+        "model": "gpt-4o",
+        "temperature": 0.2,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are the Tier-1 AI Support Agent for CloudFlow SaaS. Your goal is to answer questions regarding billing, integrations, and technical status. If the user requires a refund, cancellation, or states they are angry, trigger human_escalation. Output strict JSON: { \"intent\": \"general_inquiry\" | \"billing\" | \"escalation\", \"resolution\": string, \"requires_human\": boolean, \"confidence_score\": number (0-1) }"
+          },
+          {
+            "role": "user",
+            "content": "{{1.user_message}}"
+          }
+        ],
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "metadata": {
+        "designer": {
+          "x": 300,
+          "y": 0,
+          "name": "AI Agent Reasoning & Intent Analysis"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "module": "json:ParseJSON",
+      "version": 1,
+      "parameters": {
+        "type": ""
+      },
+      "mapper": {
+        "json": "{{2.choices[].message.content}}"
+      },
+      "metadata": {
+        "designer": {
+          "x": 600,
+          "y": 0,
+          "name": "Parse Agent Decisions"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "module": "router:router",
+      "version": 1,
+      "parameters": {},
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": 900,
+          "y": 0,
+          "name": "Router (Autonomous vs Escalation)"
+        }
+      },
+      "routes": [
+        {
+          "flow": [
+            {
+              "id": 5,
+              "module": "http:ActionSendARequest",
+              "version": 3,
+              "parameters": {},
+              "mapper": {
+                "url": "https://api.cloudflow.io/v1/chat/send-reply",
+                "method": "POST",
+                "headers": [
+                  {
+                    "name": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": "{\"conversation_id\": \"{{1.conversation_id}}\", \"reply\": \"{{3.resolution}}\", \"automated\": true}"
+              },
+              "metadata": {
+                "designer": {
+                  "x": 1200,
+                  "y": -150,
+                  "name": "Send AI Automated Resolution"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "flow": [
+            {
+              "id": 6,
+              "module": "slack:createMessage",
+              "version": 1,
+              "parameters": {},
+              "mapper": {
+                "channel": "#support-urgent-triage",
+                "text": "🚨 *HUMAN SUPPORT ESCALATION REQUIRED*\n*User:* {{1.user_email}}\n*Intent:* {{3.intent}}\n*Original Message:* {{1.user_message}}\n*Reason:* {{3.resolution}}\n*Confidence:* {{3.confidence_score}}"
+              },
+              "metadata": {
+                "designer": {
+                  "x": 1200,
+                  "y": 150,
+                  "name": "Escalate to Human Agent in Slack"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "instant": true,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true
+    }
+  }
+}
